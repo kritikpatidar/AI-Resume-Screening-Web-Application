@@ -6,26 +6,33 @@ import PyPDF2
 from dotenv import load_dotenv
 import os
 
-load_dotenv()  # Loads variables from  .env file into environment
+# Load environment variables
+load_dotenv()
 
 EMAIL_USER = os.getenv("EMAIL_USER")
 EMAIL_PASS = os.getenv("EMAIL_PASS")
 
-# Load the SentenceTransformer model once
-model = SentenceTransformer('all-MiniLM-L6-v2')
+# Lazy-load model (saves memory on Render free plan)
+model = None
+def get_model():
+    global model
+    if model is None:
+        model = SentenceTransformer('all-MiniLM-L6-v2')  # small, fast model
+    return model
 
-# Function to calculate similarity between JD and Resume
+# Calculate similarity between JD and Resume
 def get_similarity(jd_text, resume_text):
+    model = get_model()
     embeddings = model.encode([jd_text, resume_text])
     sim_score = cosine_similarity([embeddings[0]], [embeddings[1]])[0][0]
     return sim_score
 
-# Function to send email
+# Send email
 def send_email(receiver_email, subject, body):
-    yag = yagmail.SMTP(user=EMAIL_USER, password = EMAIL_PASS)  # Use App Password
+    yag = yagmail.SMTP(user=EMAIL_USER, password=EMAIL_PASS)
     yag.send(to=receiver_email, subject=subject, contents=body)
 
-# Function to extract text from uploaded PDF resume
+# Extract text from uploaded PDF
 def extract_text_from_pdf(file):
     reader = PyPDF2.PdfReader(file)
     text = ''
@@ -45,7 +52,6 @@ def index():
         email = request.form.get('email')
         resume_file = request.files.get('resume')
 
-
         resume_text = extract_text_from_pdf(resume_file)
         similarity = get_similarity(jd, resume_text)
 
@@ -57,21 +63,16 @@ def index():
             body = "Thank you for applying. Unfortunately, you're not shortlisted at this time."
 
         send_email(email, subject, body)
-        # return f"Processed. Similarity: {similarity:.2f}"
         return render_template('next.html')
 
     return render_template('index.html')
 
-
-@app.route('/done',methods=['GET','POST'])
+@app.route('/done', methods=['GET', 'POST'])
 def done():
     if request.method == 'GET':
         print('Done')
         return render_template('index.html')
-        
     return render_template('next.html')
-
-
 
 if __name__ == '__main__':
     app.run(debug=True)
