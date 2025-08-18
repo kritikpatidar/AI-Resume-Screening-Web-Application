@@ -1,4 +1,5 @@
-from flask import Flask, request, render_template
+from flask import Flask, request, render_template, jsonify
+from flask_cors import CORS
 from sentence_transformers import SentenceTransformer
 from sklearn.metrics.pairwise import cosine_similarity
 import yagmail
@@ -12,12 +13,12 @@ load_dotenv()
 EMAIL_USER = os.getenv("EMAIL_USER")
 EMAIL_PASS = os.getenv("EMAIL_PASS")
 
-# Lazy-load model (saves memory on Render free plan)
+# Lazy-load model
 model = None
 def get_model():
     global model
     if model is None:
-        model = SentenceTransformer('all-MiniLM-L6-v2')  # small, fast model
+        model = SentenceTransformer('all-MiniLM-L6-v2')
     return model
 
 # Calculate similarity between JD and Resume
@@ -44,13 +45,21 @@ def extract_text_from_pdf(file):
 
 # Flask App
 app = Flask(__name__)
+CORS(app)  # enable CORS for frontend POST requests
 
-@app.route('/', methods=['GET', 'POST'])
-def index():
-    if request.method == 'POST':
+@app.route('/', methods=['GET'])
+def home():
+    return render_template('index.html')
+
+@app.route('/submit', methods=['POST'])
+def submit():
+    try:
         jd = request.form.get('job_desc')
         email = request.form.get('email')
         resume_file = request.files.get('resume')
+
+        if not jd or not email or not resume_file:
+            return jsonify({"error": "Missing job description, email, or resume"}), 400
 
         resume_text = extract_text_from_pdf(resume_file)
         similarity = get_similarity(jd, resume_text)
@@ -63,16 +72,15 @@ def index():
             body = "Thank you for applying. Unfortunately, you're not shortlisted at this time."
 
         send_email(email, subject, body)
-        return render_template('next.html')
+        return jsonify({"status": "success", "similarity": similarity})
+    
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
-    return render_template('index.html')
-
-@app.route('/done', methods=['GET', 'POST'])
-def done():
-    if request.method == 'GET':
-        print('Done')
-        return render_template('index.html')
-    return render_template('next.html')
+# Health check (optional for Render uptime)
+@app.route('/health', methods=['GET'])
+def health():
+    return jsonify({"status": "ok"}), 200
 
 if __name__ == '__main__':
-    app.run(debug=True)
+    app.run()
